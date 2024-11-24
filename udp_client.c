@@ -1,79 +1,67 @@
 #include "contiki.h"
-#include "net/uip.h"
-#include "net/simple-udp.h"
-#include "net/rpl/rpl.h"
+#include "net/netstack.h"
+#include "net/packetbuf.h"
+#include "sys/etimer.h"
+#include "net/ip/uip.h"
+#include "net/ipv6/uip-ds6.h"
 #include <stdio.h>
-#include <string.h>
 
-#define UDP_CLIENT_PORT 5678
-#define UDP_SERVER_PORT 1234
-#define SEND_INTERVAL (CLOCK_SECOND)
-#define MAX_RETRIES 3
+#define SERVER_PORT 1234
+#define MAX_RETRIES 5
+#define ACK_TIMEOUT CLOCK_SECOND
 
-static struct simple_udp_connection udp_conn;
-static struct etimer timer;
-static uint32_t tx_count = 0;
-static uint32_t retries = 0;
-
-PROCESS(udp_client_process, "UDP Client");
+PROCESS(udp_client_process, "UDP Client with Retransmission");
 AUTOSTART_PROCESSES(&udp_client_process);
 
-static void udp_rx_callback(struct simple_udp_connection *c,
-                             const uip_ipaddr_t *sender_addr,
-                             uint16_t sender_port,
-                             const uip_ipaddr_t *receiver_addr,
-                             uint16_t receiver_port,
-                             const uint8_t *data,
-                             uint16_t datalen) {
-  printf("Received response: '%.*s'\n", datalen, (char *)data);
-  retries = 0; // Reset retries on successful reception
-}
+static struct etimer retransmission_timer;
+static int retries = 0;
+static uint8_t ack_received = 0;
 
-PROCESS_THREAD(udp_client_process, ev, data) {
-  uip_ipaddr_t dest_ipaddr;
-  
+PROCESS_THREAD(udp_client_process, ev, data)
+{
+  static struct uip_udp_conn *conn;
+  static char message[] = "Hello, Server!";
+
   PROCESS_BEGIN();
 
-  // Register the UDP connection
-  simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT, udp_rx_callback);
+  // Create the UDP connection
+  conn = udp_new(NULL, UIP_HTONS(SERVER_PORT), NULL);
+  if (conn == NULL) {
+    printf("Error: Could not create UDP connection.\n");
+    PROCESS_EXIT();
+  }
 
-  etimer_set(&timer, SEND_INTERVAL);
-  
-  while(1) {
-    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
-    
-    // Check if the node is reachable and get the root IP address
-    if(rpl_get_parent(RPL_DEFAULT_INSTANCE) != NULL) {
-      // Set the destination IP address (replace with your server's address)
-      uip_ip6addr(&dest_ipaddr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1); // Example address
-      
-      char msg[20]; // Declare msg here
-      snprintf(msg, sizeof(msg), "Hello %u", tx_count);
-      printf("Sending request: '%s'\n", msg);
-      
-      // Send message to server
-      simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr);
-      tx_count++;
+  // Set the server address (Assume server is a local node with IP address)
+  uip_ipaddr_t server_ip;
+  uip_ip6addr(&server_ip, 0xaaaa, 0xaaaa, 0xaaaa, 0xaaaa, 0xaaaa, 0xaaaa, 0xaaaa, 0xaaaa); // Server's IPv6 address
+  uip_udp_packet_sendto(conn, message, sizeof(message), &server_ip, UIP_HTONS(SERVER_PORT));
 
-      // Start retry mechanism
-      retries = MAX_RETRIES;
-      etimer_set(&timer, SEND_INTERVAL); // Reset timer for next send
+  etimer_set(&retransmission_timer, ACK_TIMEOUT);
+
+  while (1) {
+    PROCESS_WAIT_EVENT();
+
+    // Check if we received an ACK
+    if (ev == PROCESS_EVENT_TIMER) {
+      if (!ack_received && retries < MAX_RETRIES) {
+        retries++;
+        printf("No ACK received, retrying... (Attempt %d/%d)\n", retries, MAX_RETRIES);
+        uip_udp_packet_sendto(conn, message, sizeof(message), &server_ip, UIP_HTONS(SERVER_PORT));
+        etimer_reset(&retransmission_timer); // Reset timer for next retransmission
+      } else if (retries >= MAX_RETRIES) {
+        printf("Max retries reached, stopping retransmission.\n");
+        break;
+      }
     }
-
-    // Check for retries if no acknowledgment received
-    if(retries > 0) {
-      etimer_set(&timer, SEND_INTERVAL); // Wait before retrying
-      PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
-      printf("Retrying... (%u)\n", MAX_RETRIES - retries + 1);
-      char msg[20]; // Declare msg here
-      snprintf(msg, sizeof(msg), "Hello %u", tx_count);
-      simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr); // Use msg here
-      retries--;
-    }
-    
-    // Reset the timer for the next sending interval
-    etimer_set(&timer, SEND_INTERVAL);
   }
 
   PROCESS_END();
+}
+
+void udp_server_callback(struct uip_udp_conn *c, const uip_ipaddr_t *sender_addr,
+                         uint16_t sender_port, const uint8_t *data, uint16_t len)
+{
+  printf("Received data from %d.%d.%d.%d: %s\n", sender_addr->u8[0], sender_addr->u8[1], sender_addr->u8[2], sender_addr->u8[3], data);
+  // Acknowledge received data (by sending back a simple ACK message)
+  uip_udp_packet_sendto(c, "ACK", 3, sender_addr, sender_port);
 }
