@@ -1,7 +1,9 @@
 #include "contiki.h"
 #include "net/uip.h"
 #include "net/simple-udp.h"
+#include "net/rpl/rpl.h"
 #include <stdio.h>
+#include <string.h>
 
 #define UDP_CLIENT_PORT 5678
 #define UDP_SERVER_PORT 1234
@@ -29,19 +31,22 @@ static void udp_rx_callback(struct simple_udp_connection *c,
 
 PROCESS_THREAD(udp_client_process, ev, data) {
   uip_ipaddr_t dest_ipaddr;
-  
+
   PROCESS_BEGIN();
-  
+
   // Register the UDP connection
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT, udp_rx_callback);
-  
+
   etimer_set(&timer, SEND_INTERVAL);
   
   while(1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
     
-    if(NETSTACK_ROUTING.node_is_reachable() && 
-       NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr)) {
+    // Check if the node is reachable and get the root IP address
+    if(rpl_get_parent(RPL_DEFAULT_INSTANCE) != NULL) {
+      // Set the destination IP address (replace with your server's address)
+      uip_ip6addr(&dest_ipaddr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1); // Example address
+      
       char msg[20];
       snprintf(msg, sizeof(msg), "Hello %u", tx_count);
       printf("Sending request: '%s'\n", msg);
@@ -49,12 +54,12 @@ PROCESS_THREAD(udp_client_process, ev, data) {
       // Send message to server
       simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr);
       tx_count++;
-      
+
       // Start retry mechanism
       retries = MAX_RETRIES;
       etimer_set(&timer, SEND_INTERVAL); // Reset timer for next send
     }
-    
+
     // Check for retries if no acknowledgment received
     if(retries > 0) {
       etimer_set(&timer, SEND_INTERVAL); // Wait before retrying
@@ -63,7 +68,10 @@ PROCESS_THREAD(udp_client_process, ev, data) {
       simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr);
       retries--;
     }
+    
+    // Reset the timer for the next sending interval
+    etimer_set(&timer, SEND_INTERVAL);
   }
-  
+
   PROCESS_END();
 }
