@@ -65,6 +65,8 @@ PROCESS_THREAD(udp_client_process, ev, data) {
       etimer_set(&timer, SEND_INTERVAL); // Wait before retrying
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
       printf("Retrying... (%u)\n", MAX_RETRIES - retries + 1);
+      char msg[20]; // Declare msg here
+      snprintf(msg, sizeof(msg), "Hello %u", tx_count);
       simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr); // Use msg here
       retries--;
     }
