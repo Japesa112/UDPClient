@@ -31,7 +31,7 @@ static void udp_rx_callback(struct simple_udp_connection *c,
 
 PROCESS_THREAD(udp_client_process, ev, data) {
   uip_ipaddr_t dest_ipaddr;
-
+  
   PROCESS_BEGIN();
 
   // Register the UDP connection
@@ -47,7 +47,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
       // Set the destination IP address (replace with your server's address)
       uip_ip6addr(&dest_ipaddr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1); // Example address
       
-      char msg[20];
+      char msg[20]; // Declare msg here
       snprintf(msg, sizeof(msg), "Hello %u", tx_count);
       printf("Sending request: '%s'\n", msg);
       
@@ -65,7 +65,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
       etimer_set(&timer, SEND_INTERVAL); // Wait before retrying
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
       printf("Retrying... (%u)\n", MAX_RETRIES - retries + 1);
-      simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr);
+      simple_udp_sendto(&udp_conn, msg, strlen(msg), &dest_ipaddr); // Use msg here
       retries--;
     }
     
