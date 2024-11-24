@@ -1,5 +1,5 @@
 # Path to Contiki (update if necessary)
-CONTIKI = ../contiki2.7
+CONTIKI = ../contiki-2.7
 
 # Specify the target platform (e.g., sky for Tmote Sky motes)
 TARGET = sky
