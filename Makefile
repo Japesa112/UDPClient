@@ -5,7 +5,7 @@ CONTIKI = ../contiki2.7
 TARGET = sky
 
 # Define the program name based on the C file
-PROJECT = udp-client
+PROJECT = udp_client
 
 # Include the Contiki build system
 include $(CONTIKI)/Makefile.include
